@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:peer_drop/features/transfer/file_select.dart';
+import 'package:peer_drop/core/widgets/navigation_bar.dart';
+import 'package:peer_drop/features/transfer/widgets/file_select.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -130,27 +131,7 @@ class _HomePageState extends State<HomePage> {
           ],
         ),
       ),
-      bottomNavigationBar: BottomNavigationBar(
-        items: [
-          BottomNavigationBarItem(icon: Icon(Icons.home), label: 'Home'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.qr_code_scanner),
-            label: 'Transfer',
-          ),
-          BottomNavigationBarItem(icon: Icon(Icons.history), label: 'History'),
-          BottomNavigationBarItem(
-            icon: Icon(Icons.settings),
-            label: 'Settings',
-          ),
-        ],
-        currentIndex: 0,
-        selectedItemColor: Colors.blue,
-        unselectedItemColor: Colors.grey[700],
-        type: BottomNavigationBarType.fixed,
-        onTap: (index) {
-          // Handle navigation
-        },
-      ),
+      bottomNavigationBar: NavBar(context, 0),
     );
   }
 
@@ -165,7 +146,14 @@ class _HomePageState extends State<HomePage> {
       onTap: () {
         Navigator.push(
           context,
-          MaterialPageRoute(builder: (context) => FileSelectPage(deviceName: deviceName,deviceType: deviceType)),
+          MaterialPageRoute(
+            builder: (context) => FileSelectPage(
+              deviceIcon: iconData,
+              deviceName: deviceName,
+              deviceType: deviceType,
+              deviceIP: ipAddress,
+            ),
+          ),
         );
       },
       child: Container(

@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:peer_drop/core/utils/sharefiles.dart';
 
 class FileSelectPage extends StatefulWidget {
+  final IconData deviceIcon;
   final String deviceName;
   final String deviceType;
+  final String deviceIP;
   const FileSelectPage({
     super.key,
     required this.deviceName,
-    required this.deviceType,
+    required this.deviceType, 
+    required this.deviceIP, 
+    required this.deviceIcon,
   });
 
   @override
@@ -14,6 +19,25 @@ class FileSelectPage extends StatefulWidget {
 }
 
 class _FileSelectPageState extends State<FileSelectPage> {
+  int get selectedCount => files.where((file) => file.isSelected).length;
+
+  String get totalSelectedSize {
+    double total = 0;
+
+    for (final file in files) {
+      if (file.isSelected) {
+        total += double.parse(file.size.split(' ')[0]);
+      }
+    }
+
+    return "${total.toStringAsFixed(1)} MB";
+  }
+
+  final files = [
+    ShareFile(name: "Project Report.pdf", size: "2.4 MB", extension: "PDF"),
+    ShareFile(name: "Design.png", size: "3.6 MB", extension: "PNG"),
+  ];
+  Set<int> selectedFiles = {};
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
@@ -66,10 +90,17 @@ class _FileSelectPageState extends State<FileSelectPage> {
 
             const SizedBox(height: 12),
 
-            const TabBar(
-              labelStyle: TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
-              unselectedLabelStyle: TextStyle(fontSize: 16),
-              tabs: [
+            TabBar(
+              indicatorColor: Colors.deepPurple,
+              indicatorWeight: 3,
+              labelColor: Colors.deepPurple,
+              unselectedLabelColor: Colors.grey,
+              dividerColor: Colors.grey.shade300,
+              labelStyle: const TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w600,
+              ),
+              tabs: const [
                 Tab(text: "Files"),
                 Tab(text: "Folders"),
                 Tab(text: "Text"),
@@ -80,16 +111,24 @@ class _FileSelectPageState extends State<FileSelectPage> {
               child: TabBarView(
                 children: [
                   ListView.builder(
-                    itemCount: 20,
+                    itemCount: files.length,
                     itemBuilder: (context, index) {
+                      final file = files[index];
+                      final isSelected = selectedFiles.contains(index);
                       return ListTile(
+                        onTap: () {
+                          setState(() {
+                            file.isSelected = !file.isSelected;
+                          });
+                        },
                         leading: const Icon(Icons.insert_drive_file),
-                        title: Text("File $index"),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.check_circle_outline),
-                          onPressed: () {
-                            // Handle file selection
-                          },
+                        title: Text(file.name),
+                        subtitle: Text("${file.size} • ${file.extension}"),
+                        trailing: Icon(
+                          file.isSelected
+                              ? Icons.check_circle
+                              : Icons.radio_button_unchecked,
+                          color: isSelected ? Colors.grey : Colors.deepPurple,
                         ),
                       );
                     },
@@ -128,6 +167,54 @@ class _FileSelectPageState extends State<FileSelectPage> {
               ),
             ),
           ],
+        ),
+        bottomNavigationBar: Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            border: Border(top: BorderSide(color: Colors.grey.shade300)),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      "$selectedCount file${selectedCount == 1 ? '' : 's'} selected",
+                      style: const TextStyle(fontWeight: FontWeight.bold,fontSize: 16),
+                    ),
+                    Text(
+                      totalSelectedSize,
+                      style: const TextStyle(color: Colors.grey),
+                    ),
+                  ],
+                ),
+              ),
+
+              SizedBox(
+                width: MediaQuery.of(context).size.width * 0.5,
+                height: MediaQuery.of(context).size.height * 0.05,
+                child: ElevatedButton(
+                  onPressed: selectedCount == 0
+                      ? null
+                      : () {
+                          },
+                  style: ElevatedButton.styleFrom(
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    backgroundColor: Colors.deepPurple,
+                  ),
+                  child: const Text(
+                    "Send",
+                    style: TextStyle(color: Colors.white,fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
