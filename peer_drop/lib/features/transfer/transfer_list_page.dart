@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:peer_drop/core/utils/sharefiles.dart';
 import 'package:peer_drop/core/widgets/navigation_bar.dart';
-import 'package:peer_drop/features/transfer/models/transfer_file.dart';
 import 'models/transfer_item.dart';
 import 'widgets/active_transfer_card.dart';
 import 'widgets/completed_transfer_card.dart';
@@ -35,7 +35,7 @@ class TransferListPage extends StatelessWidget {
         icon: Icons.folder_zip,
         color: Colors.orange,
         files: [
-          TransferFile(name: "Photos.zip", size: "120 MB", extension: "ZIP"),
+          ShareFile(name: "Photos.zip", path: "", size: 120, extension: "ZIP"),
         ],
       ),
     ];
@@ -53,7 +53,7 @@ class TransferListPage extends StatelessWidget {
         color: Colors.red,
         completed: true,
         files: [
-          TransferFile(name: "Document.pdf", size: "2.4 MB", extension: "PDF"),
+          ShareFile(name: "Document.pdf", path: "", size: 2400000, extension: "PDF"),
         ],
       ),
 
@@ -69,7 +69,7 @@ class TransferListPage extends StatelessWidget {
         color: Colors.deepOrange,
         completed: true,
         files: [
-          TransferFile(name: "Music.mp3", size: "0.6 MB", extension: "MP3"),
+          ShareFile(name: "Music.mp3", path: "", size: 600000, extension: "MP3"),
         ],
       ),
     ];

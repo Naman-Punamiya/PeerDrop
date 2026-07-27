@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:peer_drop/features/transfer/models/transfer_file.dart';
+import 'package:peer_drop/core/utils/sharefiles.dart';
 
 class TransferItem {
   final String deviceName;
@@ -12,7 +12,7 @@ class TransferItem {
   final IconData icon;
   final Color color;
   final bool completed;
-  final List<TransferFile> files;
+  final List<ShareFile> files;
 
   TransferItem({
     required this.deviceName,

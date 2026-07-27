@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
+import 'package:peer_drop/core/utils/sharefiles.dart';
 import 'package:peer_drop/core/widgets/navigation_bar.dart';
-import 'package:peer_drop/features/transfer/models/transfer_file.dart';
 
 class TransferProgressPage extends StatefulWidget {
   final String deviceName;
   final String deviceType;
-  final List<TransferFile> files;
+  final List<ShareFile> files;
 
   const TransferProgressPage({
     super.key,
@@ -99,13 +99,13 @@ class _TransferProgressPageState extends State<TransferProgressPage> {
                                 ),
                               ),
 
-                              subtitle: Text(file.size),
+                              subtitle: Text("${file.size} MB"),
 
                               trailing: Icon(
-                                file.completed
+                                file.isSelected
                                     ? Icons.check_circle
                                     : Icons.sync,
-                                color: file.completed
+                                color: file.isSelected
                                     ? Colors.green
                                     : Colors.orange,
                               ),
