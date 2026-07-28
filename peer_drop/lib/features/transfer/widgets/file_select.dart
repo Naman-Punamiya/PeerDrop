@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:peer_drop/core/network/discovery/udp_broadcaster.dart';
+import 'package:peer_drop/core/network/discovery/udp_listener.dart';
 import 'package:peer_drop/core/services/file_picker_service.dart';
 import 'package:peer_drop/core/services/folder_picker_service.dart';
 import 'package:peer_drop/core/utils/file_utils.dart';
@@ -168,7 +170,7 @@ class _FileSelectPageState extends State<FileSelectPage>
                             ),
                             const SizedBox(height: 20),
                             const Text(
-                              "No files selected",
+                              "No File selected",
                               style: TextStyle(
                                 fontSize: 18,
                                 color: Colors.grey,
@@ -177,7 +179,7 @@ class _FileSelectPageState extends State<FileSelectPage>
                             const SizedBox(height: 10),
                             ElevatedButton(
                               onPressed: _pickFiles,
-                              child: const Text("Select Files"),
+                              child: const Text("Select File"),
                             ),
                           ],
                         ),
@@ -222,7 +224,7 @@ class _FileSelectPageState extends State<FileSelectPage>
                             ),
                             const SizedBox(height: 20),
                             const Text(
-                              "No Folders selected",
+                              "No Folder selected",
                               style: TextStyle(
                                 fontSize: 18,
                                 color: Colors.grey,
@@ -231,7 +233,7 @@ class _FileSelectPageState extends State<FileSelectPage>
                             const SizedBox(height: 10),
                             ElevatedButton(
                               onPressed: _pickFolders,
-                              child: const Text("Select Folders"),
+                              child: const Text("Select Folder"),
                             ),
                           ],
                         ),

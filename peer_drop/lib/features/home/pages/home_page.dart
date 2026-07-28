@@ -1,4 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:peer_drop/core/network/discovery/discovery_service.dart';
+import 'package:peer_drop/core/network/discovery/udp_broadcaster.dart';
+import 'package:peer_drop/core/network/discovery/udp_listener.dart';
 import 'package:peer_drop/core/widgets/navigation_bar.dart';
 import 'package:peer_drop/features/transfer/widgets/file_select.dart';
 
@@ -10,6 +13,36 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
+  late final DiscoveryService discoveryService;
+  late final UdpListener listener;
+  late final UdpBroadcaster broadcaster;
+
+  @override
+  void initState() {
+    super.initState();
+
+    discoveryService = DiscoveryService();
+    listener = UdpListener(discoveryService);
+    broadcaster = UdpBroadcaster();
+
+    discoveryService.addListener(_onDevicesChanged);
+
+    listener.startListening();
+    broadcaster.startBroadcasting();
+  }
+
+  void _onDevicesChanged() {
+    if (mounted) {
+      setState(() {});
+    }
+  }
+
+  @override
+  void dispose() {
+    discoveryService.removeListener(_onDevicesChanged);
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -95,8 +128,8 @@ class _HomePageState extends State<HomePage> {
                 ),
                 IconButton(
                   icon: const Icon(Icons.refresh),
-                  onPressed: () {
-                    // Refresh nearby devices
+                  onPressed: () async {
+                    await broadcaster.startBroadcasting();
                   },
                 ),
               ],
@@ -116,12 +149,13 @@ class _HomePageState extends State<HomePage> {
                 border: Border.all(color: Colors.grey.shade300),
               ),
               child: ListView.builder(
-                itemCount: 5,
+                itemCount: discoveryService.devices.length,
                 itemBuilder: (context, index) {
+                  final device = discoveryService.devices[index];
                   return deviceCard(
-                    'Device ${index + 1}',
-                    'Type ${index + 1}',
-                    '192.168.1.${index + 1}',
+                    device.name,
+                    device.deviceType,
+                    device.ip,
                     Icons.devices,
                     Colors.green,
                   );
