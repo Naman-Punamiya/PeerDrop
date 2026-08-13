@@ -1,3 +1,5 @@
+// ignore_for_file: non_constant_identifier_names
+
 import 'package:flutter/material.dart';
 import 'package:peer_drop/features/home/pages/home_page.dart';
 import 'package:peer_drop/features/settings/setting_page.dart';

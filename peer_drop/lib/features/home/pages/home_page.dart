@@ -1,4 +1,7 @@
+// ignore_for_file: avoid_print
+
 import 'package:flutter/material.dart';
+import 'package:peer_drop/core/device/device_identity_service.dart';
 import 'package:peer_drop/core/network/discovery/discovery_service.dart';
 import 'package:peer_drop/core/network/discovery/udp_broadcaster.dart';
 import 'package:peer_drop/core/network/discovery/udp_listener.dart';
@@ -14,21 +17,44 @@ class HomePage extends StatefulWidget {
 
 class _HomePageState extends State<HomePage> {
   late final DiscoveryService discoveryService;
-  late final UdpListener listener;
-  late final UdpBroadcaster broadcaster;
+  UdpListener? listener;
+  UdpBroadcaster? broadcaster;
+  String myDeviceId = '';
+  String myDeviceName = '';
+  String myDeviceType = '';
+  bool isInitializing = true;
+
+  Future<void> initializeDiscovery() async {
+    final identityService = DeviceIdentityService();
+    myDeviceId = await identityService.getDeviceId();
+    myDeviceName = await identityService.getDeviceName();
+    myDeviceType = identityService.getDeviceType();
+    print('[DISCOVERY] My device ID: $myDeviceId ($myDeviceName)');
+
+    discoveryService = DiscoveryService();
+    discoveryService.addListener(_onDevicesChanged);
+
+    listener = UdpListener(discoveryService, myDeviceId);
+    broadcaster = UdpBroadcaster(
+      deviceId: myDeviceId,
+      deviceName: myDeviceName,
+      deviceType: myDeviceType,
+    );
+
+    await listener?.startListening();
+    await broadcaster?.startBroadcasting();
+
+    if (mounted) {
+      setState(() {
+        isInitializing = false;
+      });
+    }
+  }
 
   @override
   void initState() {
     super.initState();
-
-    discoveryService = DiscoveryService();
-    listener = UdpListener(discoveryService);
-    broadcaster = UdpBroadcaster();
-
-    discoveryService.addListener(_onDevicesChanged);
-
-    listener.startListening();
-    broadcaster.startBroadcasting();
+    initializeDiscovery();
   }
 
   void _onDevicesChanged() {
@@ -39,12 +65,32 @@ class _HomePageState extends State<HomePage> {
 
   @override
   void dispose() {
-    discoveryService.removeListener(_onDevicesChanged);
+    if (!isInitializing) {
+      discoveryService.removeListener(_onDevicesChanged);
+      discoveryService.dispose();
+    }
+    listener?.stopListening();
+    broadcaster?.dispose();
+
     super.dispose();
   }
 
+
   @override
   Widget build(BuildContext context) {
+    if (isInitializing) {
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('PeerDrop', style: TextStyle(fontSize: 24)),
+        ),
+        body: const Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
+    final devices = discoveryService.devices;
+
     return Scaffold(
       appBar: AppBar(
         title: const Text('PeerDrop', style: TextStyle(fontSize: 24)),
@@ -75,8 +121,8 @@ class _HomePageState extends State<HomePage> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.start,
                   children: [
-                    Icon(Icons.android, size: 42, color: Colors.green),
-                    SizedBox(width: 24),
+                    const Icon(Icons.android, size: 42, color: Colors.green),
+                    const SizedBox(width: 24),
                     Expanded(
                       child: Column(
                         mainAxisAlignment: MainAxisAlignment.center,
@@ -91,7 +137,7 @@ class _HomePageState extends State<HomePage> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Visible to other devices as "Device Name"',
+                            'Visible to other devices as "$myDeviceName"',
                             style: TextStyle(
                               fontSize: 13,
                               color: Colors.grey[700],
@@ -108,7 +154,7 @@ class _HomePageState extends State<HomePage> {
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: Colors.grey),
                         ),
-                        child: Text(
+                        child: const Text(
                           'Change',
                           style: TextStyle(color: Colors.black),
                         ),
@@ -122,14 +168,14 @@ class _HomePageState extends State<HomePage> {
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-                Text(
+                const Text(
                   'Nearby Devices',
                   style: TextStyle(fontSize: 18, color: Colors.black),
                 ),
                 IconButton(
                   icon: const Icon(Icons.refresh),
                   onPressed: () async {
-                    await broadcaster.startBroadcasting();
+                    await broadcaster?.broadcastOnce();
                   },
                 ),
               ],
@@ -148,19 +194,40 @@ class _HomePageState extends State<HomePage> {
                 borderRadius: BorderRadius.circular(14),
                 border: Border.all(color: Colors.grey.shade300),
               ),
-              child: ListView.builder(
-                itemCount: discoveryService.devices.length,
-                itemBuilder: (context, index) {
-                  final device = discoveryService.devices[index];
-                  return deviceCard(
-                    device.name,
-                    device.deviceType,
-                    device.ip,
-                    Icons.devices,
-                    Colors.green,
-                  );
-                },
-              ),
+              child: devices.isEmpty
+                  ? Center(
+                      child: Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const SizedBox(
+                            width: 28,
+                            height: 28,
+                            child: CircularProgressIndicator(strokeWidth: 2.5),
+                          ),
+                          const SizedBox(height: 16),
+                          Text(
+                            'Searching for nearby devices...',
+                            style: TextStyle(
+                              fontSize: 15,
+                              color: Colors.grey[600],
+                            ),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: devices.length,
+                      itemBuilder: (context, index) {
+                        final device = devices[index];
+                        return deviceCard(
+                          device.name,
+                          device.deviceType,
+                          device.ip,
+                          Icons.devices,
+                          Colors.green,
+                        );
+                      },
+                    ),
             ),
           ],
         ),

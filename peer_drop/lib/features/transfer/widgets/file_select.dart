@@ -1,6 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:peer_drop/core/network/discovery/udp_broadcaster.dart';
-import 'package:peer_drop/core/network/discovery/udp_listener.dart';
 import 'package:peer_drop/core/services/file_picker_service.dart';
 import 'package:peer_drop/core/services/folder_picker_service.dart';
 import 'package:peer_drop/core/utils/file_utils.dart';
