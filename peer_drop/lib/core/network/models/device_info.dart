@@ -1,17 +1,19 @@
 class DeviceInfo {
   final String id;
   final String name;
-  final String deviceType;
+  final String platform;
   final String ip;
-  final int port;
+  final int discoveryPort;
+  final int connectionPort;
   final int? lastSeenMs;
 
   DeviceInfo({
     required this.id,
     required this.name,
-    required this.deviceType,
+    required this.platform,
     required this.ip,
-    required this.port,
+    required this.discoveryPort,
+    required this.connectionPort,
     this.lastSeenMs,
   });
 
@@ -19,9 +21,10 @@ class DeviceInfo {
     return {
       'id': id,
       'name': name,
-      'deviceType': deviceType,
+      'platform': platform,
       'ip': ip,
-      'port': port,
+      'discoveryPort': discoveryPort,
+      'connectionPort': connectionPort,
       'lastSeenMs': lastSeenMs ?? DateTime.now().millisecondsSinceEpoch,
     };
   }
@@ -30,9 +33,10 @@ class DeviceInfo {
     return DeviceInfo(
       id: json['id'] as String? ?? '',
       name: json['name'] as String? ?? 'Unknown Device',
-      deviceType: json['deviceType'] as String? ?? 'Unknown',
+      platform: json['platform'] as String? ?? 'Unknown',
       ip: json['ip'] as String? ?? '',
-      port: (json['port'] as num?)?.toInt() ?? 5050,
+      discoveryPort: (json['discoveryPort'] as num?)?.toInt() ?? 45000,
+      connectionPort: (json['connectionPort'] as num?)?.toInt() ?? 45001,
       lastSeenMs: (json['lastSeenMs'] as num?)?.toInt() ?? DateTime.now().millisecondsSinceEpoch,
     );
   }
@@ -40,17 +44,19 @@ class DeviceInfo {
   DeviceInfo copyWith({
     String? id,
     String? name,
-    String? deviceType,
+    String? platform,
     String? ip,
-    int? port,
+    int? discoveryPort,
+    int? connectionPort,
     int? lastSeenMs,
   }) {
     return DeviceInfo(
       id: id ?? this.id,
       name: name ?? this.name,
-      deviceType: deviceType ?? this.deviceType,
+      platform: platform ?? this.platform,
       ip: ip ?? this.ip,
-      port: port ?? this.port,
+      discoveryPort: discoveryPort ?? this.discoveryPort,
+      connectionPort: connectionPort ?? this.connectionPort,
       lastSeenMs: lastSeenMs ?? this.lastSeenMs,
     );
   }

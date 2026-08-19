@@ -1,68 +1,77 @@
-// ignore_for_file: avoid_print
-
-import 'dart:convert';
+import 'dart:async';
 import 'dart:io';
 
-import 'package:peer_drop/core/network/discovery/discovery_service.dart';
-import 'package:peer_drop/core/network/models/device_info.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:peer_drop/core/network/exception/network_exceptions.dart';
+
+class UdpPacket {
+  final InternetAddress senderAddress;
+  final int senderPort;
+  final List<int> packetDataPayload;
+
+  const UdpPacket({
+    required this.senderAddress,
+    required this.senderPort,
+    required this.packetDataPayload,
+  });
+}
 
 class UdpListener {
-  final DiscoveryService discoveryService;
-  final String myDeviceId;
-  RawDatagramSocket? _socket;
+  final int listeningUdpPort;
+  RawDatagramSocket? _listeningSocket;
+  StreamController<UdpPacket>? _incomingPacketStreamController;
 
-  UdpListener(this.discoveryService, this.myDeviceId);
+  UdpListener({int? listeningPort}) : listeningUdpPort = listeningPort ?? int.parse(dotenv.env['UDP_PORT']!);
 
-  Future<void> startListening() async {
-    stopListening(); // Stop any existing listener socket
+  Stream<UdpPacket> get packets {
+    _incomingPacketStreamController ??= StreamController<UdpPacket>.broadcast();
+    return _incomingPacketStreamController!.stream;
+  }
+
+  Future<void> start() async {
+    await stop();
+    _incomingPacketStreamController = StreamController<UdpPacket>.broadcast();
 
     try {
-      _socket = await RawDatagramSocket.bind(
+      _listeningSocket = await RawDatagramSocket.bind(
         InternetAddress.anyIPv4,
-        5050,
+        listeningUdpPort,
         reuseAddress: true,
       );
-      print('[DISCOVERY] Listener started on 0.0.0.0:5050');
 
-      _socket!.listen((RawSocketEvent event) {
-        if (event == RawSocketEvent.read) {
-          final datagram = _socket?.receive();
-          if (datagram == null) return;
+      _listeningSocket!.listen(
+        (RawSocketEvent socketEvent) {
+          if (socketEvent == RawSocketEvent.read) {
+            final socketInstance = _listeningSocket;
+            if (socketInstance == null) return;
+            final receivedDatagram = socketInstance.receive();
+            if (receivedDatagram == null) return;
 
-          try {
-            final message = utf8.decode(datagram.data);
-            print('[DISCOVERY] Packet received from ${datagram.address.address}:${datagram.port}');
+            final receivedPacket = UdpPacket(
+              senderAddress: receivedDatagram.address,
+              senderPort: receivedDatagram.port,
+              packetDataPayload: receivedDatagram.data,
+            );
 
-            final json = jsonDecode(message) as Map<String, dynamic>;
-            var device = DeviceInfo.fromJson(json);
-            print('[DISCOVERY] Received device ID: ${device.id} (${device.name})');
-
-            // Fallback to datagram remote address if payload IP is missing, loopback, or internal emulator IP
-            if (device.ip.isEmpty || device.ip == '127.0.0.1' || device.ip.startsWith('10.0.2.')) {
-              device = device.copyWith(ip: datagram.address.address);
+            final controllerInstance = _incomingPacketStreamController;
+            if (controllerInstance != null && !controllerInstance.isClosed) {
+              controllerInstance.add(receivedPacket);
             }
-
-            if (device.id.isEmpty || device.id == myDeviceId) {
-              print('[DISCOVERY] Ignoring own device packet (ID: ${device.id})');
-              return;
-            }
-
-            print('[DISCOVERY] New/updated remote device packet validated: ${device.name} (${device.ip})');
-            discoveryService.addOrUpdateDevice(device);
-          } catch (e) {
-            print('[DISCOVERY] Error decoding UDP datagram: $e');
           }
-        }
-      });
-    } catch (e) {
-      print('[DISCOVERY] Failed to bind UDP listener on port 5050: $e');
+        },
+        onError: (dynamic socketError) {},
+        onDone: () {},
+        cancelOnError: false,
+      );
+    } catch (caughtError) {
+      throw DiscoveryException('Failed to start UDP listener on port $listeningUdpPort', caughtError);
     }
   }
 
-  void stopListening() {
-    _socket?.close();
-    _socket = null;
-    print('[DISCOVERY] Listener stopped');
+  Future<void> stop() async {
+    _listeningSocket?.close();
+    _listeningSocket = null;
+    await _incomingPacketStreamController?.close();
+    _incomingPacketStreamController = null;
   }
 }
-

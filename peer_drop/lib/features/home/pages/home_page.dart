@@ -1,12 +1,16 @@
-// ignore_for_file: avoid_print
+import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:peer_drop/core/device/device_identity_service.dart';
-import 'package:peer_drop/core/network/discovery/discovery_service.dart';
+import 'package:peer_drop/core/network/connection/connection_service.dart';
+import 'package:peer_drop/core/network/discovery/device_discovery.dart';
+import 'package:peer_drop/core/network/discovery/native_device_discovery.dart';
 import 'package:peer_drop/core/network/discovery/udp_broadcaster.dart';
 import 'package:peer_drop/core/network/discovery/udp_listener.dart';
+import 'package:peer_drop/core/network/models/device_info.dart';
+import 'package:peer_drop/core/network/transport/tcp_server.dart';
 import 'package:peer_drop/core/widgets/navigation_bar.dart';
-import 'package:peer_drop/features/transfer/widgets/file_select.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key});
@@ -16,80 +20,118 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  late final DiscoveryService discoveryService;
-  UdpListener? listener;
-  UdpBroadcaster? broadcaster;
-  String myDeviceId = '';
-  String myDeviceName = '';
-  String myDeviceType = '';
-  bool isInitializing = true;
+  TcpServer? tcpServerInstance;
+  DeviceDiscovery? deviceDiscoveryInstance;
+  UdpBroadcaster? udpBroadcasterInstance;
+  UdpListener? udpListenerInstance;
 
-  Future<void> initializeDiscovery() async {
-    final identityService = DeviceIdentityService();
-    myDeviceId = await identityService.getDeviceId();
-    myDeviceName = await identityService.getDeviceName();
-    myDeviceType = identityService.getDeviceType();
-    print('[DISCOVERY] My device ID: $myDeviceId ($myDeviceName)');
+  StreamSubscription<List<DeviceInfo>>? _discoveredDevicesSubscription;
+  List<DeviceInfo> listOfDiscoveredDevices = [];
 
-    discoveryService = DiscoveryService();
-    discoveryService.addListener(_onDevicesChanged);
+  late final ConnectionService connectionService;
 
-    listener = UdpListener(discoveryService, myDeviceId);
-    broadcaster = UdpBroadcaster(
-      deviceId: myDeviceId,
-      deviceName: myDeviceName,
-      deviceType: myDeviceType,
-    );
+  String currentDeviceId = '';
+  String currentDeviceName = '';
+  String currentDevicePlatform = '';
 
-    await listener?.startListening();
-    await broadcaster?.startBroadcasting();
+  bool isSearchingForDevices = true;
+  bool isInitializingNetwork = true;
 
-    if (mounted) {
+  @override
+  void initState() {
+    super.initState();
+    connectionService = ConnectionService();
+    initializeNetwork();
+  }
+
+  Future<void> initializeNetwork() async {
+    try {
+      final identityService = DeviceIdentityService();
+
+      currentDeviceId = await identityService.getDeviceId();
+      currentDeviceName = await identityService.getDeviceName();
+      currentDevicePlatform = identityService.getDeviceType();
+
+      if (!mounted) return;
+
+      final localDeviceInfo = DeviceInfo(
+        id: currentDeviceId,
+        name: currentDeviceName,
+        platform: currentDevicePlatform,
+        ip: '',
+        discoveryPort: int.parse(dotenv.env['UDP_PORT']!),
+        connectionPort: int.parse(dotenv.env['TCP_PORT']!),
+      );
+
+      udpBroadcasterInstance = UdpBroadcaster(deviceInfo: localDeviceInfo);
+      udpListenerInstance = UdpListener();
+
+      deviceDiscoveryInstance = NativeDeviceDiscovery(
+        broadcaster: udpBroadcasterInstance!,
+        listener: udpListenerInstance!,
+        localDeviceInfo: localDeviceInfo,
+      );
+
+      _discoveredDevicesSubscription = deviceDiscoveryInstance!.devices.listen((updatedDevicesList) {
+        if (!mounted) return;
+        setState(() {
+          listOfDiscoveredDevices = updatedDevicesList;
+          if (listOfDiscoveredDevices.isNotEmpty) {
+            isSearchingForDevices = false;
+          }
+        });
+      });
+
+      tcpServerInstance = TcpServer();
+
+      await deviceDiscoveryInstance!.start();
+      await tcpServerInstance!.start();
+
+      if (!mounted) return;
+
       setState(() {
-        isInitializing = false;
+        isInitializingNetwork = false;
+        isSearchingForDevices = true;
+      });
+
+      await Future.delayed(const Duration(seconds: 6));
+
+      if (!mounted) return;
+
+      if (listOfDiscoveredDevices.isEmpty) {
+        setState(() {
+          isSearchingForDevices = false;
+        });
+      }
+    } catch (initializationError) {
+      if (!mounted) return;
+
+      setState(() {
+        isInitializingNetwork = false;
+        isSearchingForDevices = false;
       });
     }
   }
 
   @override
-  void initState() {
-    super.initState();
-    initializeDiscovery();
-  }
-
-  void _onDevicesChanged() {
-    if (mounted) {
-      setState(() {});
-    }
-  }
-
-  @override
   void dispose() {
-    if (!isInitializing) {
-      discoveryService.removeListener(_onDevicesChanged);
-      discoveryService.dispose();
-    }
-    listener?.stopListening();
-    broadcaster?.dispose();
-
+    _discoveredDevicesSubscription?.cancel();
+    deviceDiscoveryInstance?.stop();
+    tcpServerInstance?.stop();
+    connectionService.disconnect();
     super.dispose();
   }
 
-
   @override
   Widget build(BuildContext context) {
-    if (isInitializing) {
+    if (isInitializingNetwork) {
       return Scaffold(
         appBar: AppBar(
           title: const Text('PeerDrop', style: TextStyle(fontSize: 24)),
         ),
-        body: const Center(
-          child: CircularProgressIndicator(),
-        ),
+        body: const Center(child: CircularProgressIndicator()),
       );
     }
-
-    final devices = discoveryService.devices;
 
     return Scaffold(
       appBar: AppBar(
@@ -97,16 +139,13 @@ class _HomePageState extends State<HomePage> {
         actions: [
           IconButton(
             icon: const Icon(Icons.qr_code_scanner),
-            onPressed: () {
-              // Navigate to settings page
-            },
+            onPressed: () {},
           ),
         ],
       ),
       body: Padding(
         padding: const EdgeInsets.all(16.0),
         child: Column(
-          mainAxisAlignment: MainAxisAlignment.start,
           children: [
             Container(
               width: double.infinity,
@@ -119,7 +158,6 @@ class _HomePageState extends State<HomePage> {
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.start,
                   children: [
                     const Icon(Icons.android, size: 42, color: Colors.green),
                     const SizedBox(width: 24),
@@ -137,7 +175,7 @@ class _HomePageState extends State<HomePage> {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Visible to other devices as "$myDeviceName"',
+                            'Visible to other devices as "$currentDeviceName"',
                             style: TextStyle(
                               fontSize: 13,
                               color: Colors.grey[700],
@@ -149,7 +187,7 @@ class _HomePageState extends State<HomePage> {
                     TextButton(
                       onPressed: () {},
                       child: Container(
-                        padding: const EdgeInsets.all(8.0),
+                        padding: const EdgeInsets.all(8),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(8),
                           border: Border.all(color: Colors.grey),
@@ -175,59 +213,27 @@ class _HomePageState extends State<HomePage> {
                 IconButton(
                   icon: const Icon(Icons.refresh),
                   onPressed: () async {
-                    await broadcaster?.broadcastOnce();
+                    await udpBroadcasterInstance?.broadcastOnce();
                   },
                 ),
               ],
             ),
             const SizedBox(height: 16),
-            Container(
-              padding: const EdgeInsets.only(
-                right: 12.0,
-                left: 12.0,
-                top: 8.0,
-                bottom: 8.0,
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.only(
+                  right: 12,
+                  left: 12,
+                  top: 8,
+                  bottom: 8,
+                ),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.grey.shade300),
+                ),
+                child: _buildDeviceList(listOfDiscoveredDevices),
               ),
-              height: MediaQuery.of(context).size.height * .5,
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.grey.shade300),
-              ),
-              child: devices.isEmpty
-                  ? Center(
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          const SizedBox(
-                            width: 28,
-                            height: 28,
-                            child: CircularProgressIndicator(strokeWidth: 2.5),
-                          ),
-                          const SizedBox(height: 16),
-                          Text(
-                            'Searching for nearby devices...',
-                            style: TextStyle(
-                              fontSize: 15,
-                              color: Colors.grey[600],
-                            ),
-                          ),
-                        ],
-                      ),
-                    )
-                  : ListView.builder(
-                      itemCount: devices.length,
-                      itemBuilder: (context, index) {
-                        final device = devices[index];
-                        return deviceCard(
-                          device.name,
-                          device.deviceType,
-                          device.ip,
-                          Icons.devices,
-                          Colors.green,
-                        );
-                      },
-                    ),
             ),
           ],
         ),
@@ -236,27 +242,81 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
+  Widget _buildDeviceList(List<DeviceInfo> discoveredDevicesList) {
+    if (isSearchingForDevices && discoveredDevicesList.isEmpty) {
+      return Center(
+        child: Column(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 2.5),
+            ),
+            const SizedBox(height: 16),
+            Text(
+              'Searching for nearby devices...',
+              style: TextStyle(fontSize: 15, color: Colors.grey[600]),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (discoveredDevicesList.isEmpty) {
+      return Center(
+        child: Text(
+          'No nearby devices',
+          style: TextStyle(color: Colors.grey[600], fontSize: 15),
+        ),
+      );
+    }
+
+    return ListView.builder(
+      itemCount: discoveredDevicesList.length,
+      itemBuilder: (context, index) {
+        final targetDevice = discoveredDevicesList[index];
+
+        return deviceCard(
+          targetDevice.name,
+          targetDevice.platform,
+          targetDevice.ip,
+          Icons.devices,
+          Colors.green,
+          () => _connectToTargetDevice(targetDevice),
+        );
+      },
+    );
+  }
+
+  Future<void> _connectToTargetDevice(DeviceInfo targetDevice) async {
+    try {
+      await connectionService.connect(device: targetDevice);
+
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Connected to ${targetDevice.name}')),
+      );
+    } catch (connectionError) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Connection failed: $connectionError')),
+      );
+    }
+  }
+
   Widget deviceCard(
     String deviceName,
     String deviceType,
     String ipAddress,
     IconData iconData,
     Color iconColor,
+    VoidCallback onTapCallback,
   ) {
     return InkWell(
-      onTap: () {
-        Navigator.push(
-          context,
-          MaterialPageRoute(
-            builder: (context) => FileSelectPage(
-              deviceIcon: iconData,
-              deviceName: deviceName,
-              deviceType: deviceType,
-              deviceIP: ipAddress,
-            ),
-          ),
-        );
-      },
+      onTap: onTapCallback,
       child: Container(
         height: MediaQuery.of(context).size.height * .1,
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -267,9 +327,7 @@ class _HomePageState extends State<HomePage> {
           ),
         ),
         child: Row(
-          crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Device Icon
             Container(
               height: 52,
               width: 52,
@@ -277,12 +335,9 @@ class _HomePageState extends State<HomePage> {
                 color: Colors.grey.shade100,
                 shape: BoxShape.circle,
               ),
-              child: Icon(iconData, color: Colors.green, size: 30),
+              child: Icon(iconData, color: iconColor, size: 30),
             ),
-
             const SizedBox(width: 24),
-
-            // Device Information
             Expanded(
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -290,18 +345,19 @@ class _HomePageState extends State<HomePage> {
                 children: [
                   Text(
                     deviceName,
-                    style: TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    "$deviceType • $ipAddress",
+                    '$deviceType • $ipAddress',
                     style: TextStyle(color: Colors.grey.shade600, fontSize: 14),
                   ),
                 ],
               ),
             ),
-
-            // Signal Strength
             Icon(Icons.signal_cellular_alt, color: iconColor, size: 28),
           ],
         ),
