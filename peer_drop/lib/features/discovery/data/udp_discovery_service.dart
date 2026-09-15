@@ -36,6 +36,7 @@ class UdpDiscoveryService {
   DiscoveryServiceState get state => _state;
 
   final Map<String, PeerDevice> _peers = {};
+  final Map<String, DateTime> _lastDirectReply = {};
   PeerUpdateCallback? _onPeersUpdated;
   StateChangeCallback? _onStateChanged;
 
@@ -92,8 +93,8 @@ class UdpDiscoveryService {
       _socketSubscription = _socket!.listen(
         _handleSocketEvent,
         onError: (err, st) {
-          AppLogger.error('UDP socket stream error', tag: 'Discovery', error: err, stackTrace: st);
-          _handleError('UDP socket error: $err');
+          // Log transient socket stream errors (e.g. ICMP network unreachable) without crashing discovery
+          AppLogger.warning('Transient UDP socket stream error: $err', tag: 'Discovery');
         },
         onDone: () {
           AppLogger.info('UDP socket stream completed', tag: 'Discovery');
@@ -118,8 +119,17 @@ class UdpDiscoveryService {
       _updateState(DiscoveryServiceState.discovering);
       AppLogger.info('UDP Discovery started successfully', tag: 'Discovery');
 
-      // Send initial announcement immediately
+      // Send initial announcement burst (0ms, 200ms, 450ms, 800ms) for fast peer detection
       _sendBroadcast();
+      Timer(const Duration(milliseconds: 200), () {
+        if (_state == DiscoveryServiceState.discovering) _sendBroadcast();
+      });
+      Timer(const Duration(milliseconds: 450), () {
+        if (_state == DiscoveryServiceState.discovering) _sendBroadcast();
+      });
+      Timer(const Duration(milliseconds: 800), () {
+        if (_state == DiscoveryServiceState.discovering) _sendBroadcast();
+      });
     } catch (e, st) {
       AppLogger.error('Failed to start UDP Discovery', tag: 'Discovery', error: e, stackTrace: st);
       _handleError('Failed to bind UDP socket: $e');
@@ -132,26 +142,27 @@ class UdpDiscoveryService {
 
     if (event == RawSocketEvent.read) {
       try {
-        final datagram = _socket?.receive();
-        if (datagram == null) return;
+        while (true) {
+          final datagram = _socket?.receive();
+          if (datagram == null) break;
 
-        final rawText = utf8.decode(datagram.data, allowMalformed: true);
-        final message = DiscoveryMessage.tryDecode(rawText);
+          final rawText = utf8.decode(datagram.data, allowMalformed: true);
+          final message = DiscoveryMessage.tryDecode(rawText);
 
-        if (message == null) {
-          // Ignore malformed packets safely without throwing or logging error
-          return;
+          if (message == null) {
+            continue;
+          }
+
+          // Self-discovery filter: ignore own broadcasts
+          if (message.deviceId == localDeviceId) {
+            continue;
+          }
+
+          _handlePeerDiscovered(
+            message: message,
+            senderAddress: datagram.address,
+          );
         }
-
-        // Self-discovery filter: ignore own broadcasts
-        if (message.deviceId == localDeviceId) {
-          return;
-        }
-
-        _handlePeerDiscovered(
-          message: message,
-          senderAddress: datagram.address,
-        );
       } catch (e) {
         // Malformed packet or decoding error must never crash the service
         AppLogger.debug('Ignored malformed discovery packet: $e', tag: 'Discovery');
@@ -159,15 +170,30 @@ class UdpDiscoveryService {
     }
   }
 
-  /// Processes a valid discovered peer.
+  /// Processes a valid discovered peer or goodbye event.
   void _handlePeerDiscovered({
     required DiscoveryMessage message,
     required InternetAddress senderAddress,
   }) {
+    if (message.action == DiscoveryMessage.actionGoodbye) {
+      final removed = _peers.remove(message.deviceId);
+      _lastDirectReply.remove(message.deviceId);
+      if (removed != null) {
+        AppLogger.info('Peer left gracefully: ${removed.deviceName} (${removed.deviceId})', tag: 'Discovery');
+        _notifyPeersUpdated();
+      }
+      return;
+    }
+
     final now = DateTime.now();
     final existing = _peers[message.deviceId];
 
     final isNew = existing == null;
+    final propertyChanged = isNew ||
+        existing.ipAddress != senderAddress.address ||
+        existing.tcpPort != message.tcpPort ||
+        existing.deviceName != message.deviceName;
+
     final updatedPeer = PeerDevice(
       deviceId: message.deviceId,
       deviceName: message.deviceName,
@@ -181,11 +207,19 @@ class UdpDiscoveryService {
 
     if (isNew) {
       AppLogger.info('Peer discovered: ${updatedPeer.deviceName} (${updatedPeer.platform}) at ${senderAddress.address}:${updatedPeer.tcpPort}', tag: 'Discovery');
-      // Immediately reply with a direct unicast announcement so peer discovers us even if their subnet broadcast was filtered/one-way
+    }
+
+    // Send a direct unicast announcement reply back so peer discovers us instantly
+    final lastReply = _lastDirectReply[message.deviceId];
+    final shouldReplyDirect = isNew || lastReply == null || now.difference(lastReply).inMilliseconds >= 1500;
+    if (shouldReplyDirect) {
+      _lastDirectReply[message.deviceId] = now;
       _sendDirectAnnouncement(senderAddress);
     }
 
-    _notifyPeersUpdated();
+    if (propertyChanged) {
+      _notifyPeersUpdated();
+    }
   }
 
   /// Sends a direct unicast announcement to a specific peer address.
@@ -198,6 +232,7 @@ class UdpDiscoveryService {
         deviceName: localDeviceName,
         platform: platform,
         tcpPort: localTcpPort,
+        action: DiscoveryMessage.actionAnnounce,
       );
       final data = utf8.encode(message.encode());
       _socket?.send(data, targetAddress, discoveryPort);
@@ -216,6 +251,7 @@ class UdpDiscoveryService {
         deviceName: localDeviceName,
         platform: platform,
         tcpPort: localTcpPort,
+        action: DiscoveryMessage.actionAnnounce,
       );
 
       final data = utf8.encode(message.encode());
@@ -256,6 +292,7 @@ class UdpDiscoveryService {
 
     for (final id in expiredIds) {
       final peer = _peers.remove(id);
+      _lastDirectReply.remove(id);
       if (peer != null) {
         AppLogger.info('Peer expired: ${peer.deviceName} (${peer.deviceId})', tag: 'Discovery');
         changed = true;
@@ -268,18 +305,48 @@ class UdpDiscoveryService {
   }
 
   /// Stops discovery safely and releases socket and timers.
-  void stop() {
+  Future<void> stop() async {
     if (_state == DiscoveryServiceState.disposed || _state == DiscoveryServiceState.stopped) {
       return;
     }
 
     AppLogger.info('Stopping UDP Discovery...', tag: 'Discovery');
+    await _sendGoodbye();
+
     _cleanupTimers();
     _cleanupSocket();
     _peers.clear();
+    _lastDirectReply.clear();
     _updateState(DiscoveryServiceState.stopped);
     _notifyPeersUpdated();
     AppLogger.info('UDP Discovery stopped', tag: 'Discovery');
+  }
+
+  Future<void> _sendGoodbye() async {
+    if (_socket == null) return;
+    try {
+      final message = DiscoveryMessage(
+        deviceId: localDeviceId,
+        deviceName: localDeviceName,
+        platform: platform,
+        tcpPort: localTcpPort,
+        action: DiscoveryMessage.actionGoodbye,
+      );
+      final data = utf8.encode(message.encode());
+      final broadcastAddresses = await NetworkUtils.getBroadcastAddresses();
+      for (final address in broadcastAddresses) {
+        try {
+          _socket?.send(data, address, discoveryPort);
+        } catch (_) {}
+      }
+      for (final peer in _peers.values) {
+        try {
+          _socket?.send(data, InternetAddress(peer.ipAddress), discoveryPort);
+        } catch (_) {}
+      }
+    } catch (e) {
+      AppLogger.debug('Error sending discovery goodbye: $e', tag: 'Discovery');
+    }
   }
 
   /// Completely disposes of all resources.
@@ -329,7 +396,7 @@ class UdpDiscoveryService {
   void _notifyPeersUpdated() {
     if (_state == DiscoveryServiceState.disposed) return;
     final list = _peers.values.toList()
-      ..sort((a, b) => b.lastSeen.compareTo(a.lastSeen));
+      ..sort((a, b) => a.deviceName.toLowerCase().compareTo(b.deviceName.toLowerCase()));
     _onPeersUpdated?.call(List.unmodifiable(list));
   }
 }

@@ -3,9 +3,12 @@ import '../../../core/constants/app_constants.dart';
 
 class DiscoveryMessage {
   static const String messageType = 'peer_discovery';
+  static const String actionAnnounce = 'announce';
+  static const String actionGoodbye = 'goodbye';
 
   final String type;
   final int version;
+  final String action;
   final String deviceId;
   final String deviceName;
   final String platform;
@@ -14,6 +17,7 @@ class DiscoveryMessage {
   const DiscoveryMessage({
     this.type = messageType,
     this.version = AppConstants.protocolVersion,
+    this.action = actionAnnounce,
     required this.deviceId,
     required this.deviceName,
     required this.platform,
@@ -24,6 +28,7 @@ class DiscoveryMessage {
     return {
       'type': type,
       'version': version,
+      'action': action,
       'deviceId': deviceId,
       'deviceName': deviceName,
       'platform': platform,
@@ -44,6 +49,8 @@ class DiscoveryMessage {
       final version = map['version'] as int?;
       if (version == null || version <= 0) return null;
 
+      final action = map['action'] as String? ?? actionAnnounce;
+
       final deviceId = map['deviceId'] as String?;
       if (deviceId == null || deviceId.trim().isEmpty) return null;
 
@@ -58,6 +65,7 @@ class DiscoveryMessage {
       return DiscoveryMessage(
         type: messageType,
         version: version,
+        action: action,
         deviceId: deviceId.trim(),
         deviceName: deviceName.trim(),
         platform: platformStr.trim().toLowerCase(),

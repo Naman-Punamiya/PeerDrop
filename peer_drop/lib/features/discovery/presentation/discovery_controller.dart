@@ -1,29 +1,35 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/logging/app_logger.dart';
 import '../../../core/utils/network_utils.dart';
+import '../../settings/domain/app_settings.dart';
 import '../../settings/presentation/settings_controller.dart';
 import '../data/udp_discovery_service.dart';
 import '../domain/peer_device.dart';
 import 'discovery_state.dart';
 
 final discoveryControllerProvider = StateNotifierProvider<DiscoveryController, DiscoveryState>((ref) {
-  final settingsAsync = ref.watch(settingsControllerProvider);
   final controller = DiscoveryController();
+
+  // Listen to settings changes and initialize/update service without recreating the controller
+  ref.listen<AsyncValue<AppSettings>>(
+    settingsControllerProvider,
+    (previous, next) {
+      next.whenData((settings) {
+        controller.initService(
+          deviceId: settings.deviceId,
+          deviceName: settings.deviceName,
+          platform: NetworkUtils.getPlatformName(),
+          tcpPort: settings.tcpPort,
+          discoveryPort: settings.discoveryPort,
+          autoStart: false,
+        );
+      });
+    },
+    fireImmediately: true,
+  );
 
   ref.onDispose(() {
     controller.disposeService();
-  });
-
-  // When settings are available and autoDiscover is true, initialize and start discovery
-  settingsAsync.whenData((settings) {
-    controller.initService(
-      deviceId: settings.deviceId,
-      deviceName: settings.deviceName,
-      platform: NetworkUtils.getPlatformName(),
-      tcpPort: settings.tcpPort,
-      discoveryPort: settings.discoveryPort,
-      autoStart: settings.autoDiscover,
-    );
   });
 
   return controller;
@@ -45,7 +51,7 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
     required String platform,
     required int tcpPort,
     required int discoveryPort,
-    bool autoStart = true,
+    bool autoStart = false,
   }) {
     // If configuration changed or service is null, recreate
     final needsRecreate = _service == null ||
@@ -86,13 +92,13 @@ class DiscoveryController extends StateNotifier<DiscoveryState> {
     await _service!.start();
   }
 
-  void stopDiscovery() {
-    _service?.stop();
+  Future<void> stopDiscovery() async {
+    await _service?.stop();
     state = state.copyWith(status: DiscoveryServiceState.stopped, peers: const []);
   }
 
   Future<void> restartDiscovery() async {
-    stopDiscovery();
+    await stopDiscovery();
     await Future.delayed(const Duration(milliseconds: 300));
     await startDiscovery();
   }

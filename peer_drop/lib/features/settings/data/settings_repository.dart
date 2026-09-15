@@ -44,8 +44,8 @@ class SettingsRepository {
       await _prefs.setString(AppConstants.prefDownloadDir, downloadDir);
     }
 
-    // 5. Auto Discover
-    final autoDiscover = _prefs.getBool(AppConstants.prefAutoDiscover) ?? true;
+    // 5. Auto Discover (default false so user manually turns on)
+    final autoDiscover = _prefs.getBool(AppConstants.prefAutoDiscover) ?? false;
 
     return AppSettings(
       deviceId: deviceId,

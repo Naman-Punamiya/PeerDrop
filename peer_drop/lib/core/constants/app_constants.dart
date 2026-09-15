@@ -10,7 +10,7 @@ class AppConstants {
 
   // Discovery intervals & timeouts
   static const Duration discoveryBroadcastInterval = Duration(milliseconds: 1500);
-  static const Duration peerTimeoutDuration = Duration(seconds: 15);
+  static const Duration peerTimeoutDuration = Duration(seconds: 40);
   static const Duration peerSweepInterval = Duration(seconds: 2);
 
   // TCP & File transfer

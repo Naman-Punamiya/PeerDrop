@@ -64,6 +64,8 @@ class NetworkUtils {
   /// Returns all available local IPv4 broadcast addresses.
   static Future<List<InternetAddress>> getBroadcastAddresses() async {
     final list = <InternetAddress>[];
+    final addedIps = <String>{};
+
     try {
       final interfaces = await NetworkInterface.list(
         type: InternetAddressType.IPv4,
@@ -72,14 +74,15 @@ class NetworkUtils {
 
       for (final interface in interfaces) {
         for (final addr in interface.addresses) {
-          if (!addr.isLoopback) {
-            // Compute standard /24 subnet broadcast address as a heuristic if netmask not available
+          if (!addr.isLoopback && !addr.isLinkLocal) {
             final parts = addr.address.split('.');
             if (parts.length == 4) {
               final broadcastIp = '${parts[0]}.${parts[1]}.${parts[2]}.255';
-              try {
-                list.add(InternetAddress(broadcastIp));
-              } catch (_) {}
+              if (addedIps.add(broadcastIp)) {
+                try {
+                  list.add(InternetAddress(broadcastIp));
+                } catch (_) {}
+              }
             }
           }
         }
@@ -88,8 +91,13 @@ class NetworkUtils {
       AppLogger.warning('Error computing subnet broadcast addresses', tag: 'NetworkUtils', error: e);
     }
 
-    // Always include global broadcast address
-    list.add(InternetAddress('255.255.255.255'));
+    // Always include global broadcast address as fallback if not present
+    if (addedIps.add('255.255.255.255')) {
+      try {
+        list.add(InternetAddress('255.255.255.255'));
+      } catch (_) {}
+    }
+
     return list;
   }
 

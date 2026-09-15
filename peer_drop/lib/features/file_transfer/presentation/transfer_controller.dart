@@ -4,11 +4,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/errors/app_exceptions.dart';
 import '../../../core/logging/app_logger.dart';
 import '../../../core/utils/network_utils.dart';
+import '../../connection/data/message_framing.dart';
 import '../../connection/data/tcp_client.dart';
 import '../../connection/data/tcp_server.dart';
 import '../../connection/domain/protocol_message.dart';
 import '../../connection/presentation/connection_controller.dart';
 import '../../discovery/domain/peer_device.dart';
+import '../../discovery/presentation/discovery_controller.dart';
 import '../../history/domain/transfer_record.dart';
 import '../../history/presentation/history_controller.dart';
 import '../../settings/presentation/settings_controller.dart';
@@ -32,14 +34,18 @@ final transferControllerProvider = StateNotifierProvider<TransferController, Tra
   final tcpServer = ref.watch(tcpServerProvider);
   final filesystem = ref.watch(filesystemServiceProvider);
   final historyController = ref.watch(historyControllerProvider.notifier);
-  final settings = ref.watch(settingsControllerProvider).valueOrNull;
+  final identity = ref.watch(
+    settingsControllerProvider.select((s) => s.valueOrNull == null
+        ? null
+        : (s.value!.deviceId, s.value!.deviceName)),
+  );
 
   final controller = TransferController(
     ref: ref,
     filesystemService: filesystem,
     historyController: historyController,
-    localDeviceId: settings?.deviceId ?? '',
-    localDeviceName: settings?.deviceName ?? '',
+    localDeviceId: identity?.$1 ?? '',
+    localDeviceName: identity?.$2 ?? '',
   );
 
   if (tcpServer != null) {
@@ -92,6 +98,21 @@ class TransferController extends StateNotifier<TransferState> {
       if (json != null) {
         final request = FileTransferRequestPayload.fromJson(json);
         if (request != null) {
+          // Reject transfers if discovery / visibility is turned OFF
+          final isDiscovering = ref.read(discoveryControllerProvider).isDiscovering;
+          if (!isDiscovering) {
+            AppLogger.info('Auto-rejected incoming file request from ${peerInfo.deviceName}: Discovery is turned OFF', tag: 'TransferController');
+            final rejectPayload = {
+              'transferId': request.transferId,
+              'reason': 'Device is not discoverable (Discovery is OFF)',
+            };
+            socket.add(MessageSerializer.frameJson(MessageType.fileTransferReject, rejectPayload));
+            try {
+              socket.flush();
+            } catch (_) {}
+            return;
+          }
+
           AppLogger.info('Incoming file request: ${request.filename} (${request.fileSize} bytes) from ${peerInfo.deviceName}', tag: 'TransferController');
 
           // Initialize receiver

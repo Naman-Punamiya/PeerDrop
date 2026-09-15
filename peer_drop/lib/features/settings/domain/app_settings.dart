@@ -14,7 +14,7 @@ class AppSettings {
     this.tcpPort = AppConstants.defaultTcpPort,
     this.discoveryPort = AppConstants.defaultDiscoveryPort,
     required this.downloadDirectory,
-    this.autoDiscover = true,
+    this.autoDiscover = false,
   });
 
   AppSettings copyWith({

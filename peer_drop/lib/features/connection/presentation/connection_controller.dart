@@ -5,14 +5,24 @@ import '../../settings/presentation/settings_controller.dart';
 import '../data/tcp_server.dart';
 
 final tcpServerProvider = Provider<TcpServer?>((ref) {
-  final settingsAsync = ref.watch(settingsControllerProvider);
-  final settings = settingsAsync.valueOrNull;
-  if (settings == null) return null;
+  final serverConfig = ref.watch(
+    settingsControllerProvider.select((s) => s.valueOrNull == null
+        ? null
+        : (
+            s.value!.tcpPort,
+            s.value!.deviceId,
+            s.value!.deviceName,
+          )),
+  );
+
+  if (serverConfig == null) return null;
+
+  final (tcpPort, deviceId, deviceName) = serverConfig;
 
   final server = TcpServer(
-    port: settings.tcpPort,
-    localDeviceId: settings.deviceId,
-    localDeviceName: settings.deviceName,
+    port: tcpPort,
+    localDeviceId: deviceId,
+    localDeviceName: deviceName,
     platform: NetworkUtils.getPlatformName(),
   );
 
