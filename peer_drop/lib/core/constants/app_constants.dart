@@ -14,7 +14,7 @@ class AppConstants {
   static const Duration peerSweepInterval = Duration(seconds: 2);
 
   // TCP & File transfer
-  static const int defaultChunkSize = 256 * 1024; // 256 KB
+  static const int defaultChunkSize = 512 * 1024; // 512 KB
   static const Duration connectionTimeout = Duration(seconds: 15);
   static const Duration handshakeTimeout = Duration(seconds: 15);
   static const Duration transferRequestTimeout = Duration(seconds: 60);
