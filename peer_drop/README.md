@@ -1,4 +1,4 @@
-# peer_drop
+# peerdrop
 
 A new Flutter project.
 

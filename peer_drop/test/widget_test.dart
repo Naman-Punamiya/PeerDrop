@@ -1,30 +1,37 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
-import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:peer_drop/app/app.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:shared_preferences/shared_preferences.dart';
+import 'package:peerdrop/app/app.dart';
+import 'package:peerdrop/features/history/data/history_repository.dart';
+import 'package:peerdrop/features/history/presentation/history_controller.dart';
+import 'package:peerdrop/features/settings/data/settings_repository.dart';
+import 'package:peerdrop/features/settings/presentation/settings_controller.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(const PeerDropApp());
+  testWidgets('PeerDropApp renders HomeScreen', (WidgetTester tester) async {
+    SharedPreferences.setMockInitialValues({
+      'peerdrop_device_id': 'test-device-id',
+      'peerdrop_device_name': 'Test Device',
+      'peerdrop_auto_discover': false,
+    });
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    final prefs = await SharedPreferences.getInstance();
+    final settingsRepo = SettingsRepository(prefs);
+    final historyRepo = HistoryRepository(prefs);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
-    await tester.pump();
+    await tester.pumpWidget(
+      ProviderScope(
+        overrides: [
+          settingsRepositoryProvider.overrideWithValue(settingsRepo),
+          historyRepositoryProvider.overrideWithValue(historyRepo),
+        ],
+        child: const PeerDropApp(),
+      ),
+    );
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    await tester.pumpAndSettle();
+
+    expect(find.text('PeerDrop'), findsWidgets);
+    expect(find.text('Nearby Devices'), findsOneWidget);
   });
 }
