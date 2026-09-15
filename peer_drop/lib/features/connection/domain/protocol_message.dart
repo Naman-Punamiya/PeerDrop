@@ -209,7 +209,7 @@ class FileChunkData {
 
       if (payload.length < offset + idLen + 12) return null;
 
-      final transferId = utf8.decode(payload.sublist(offset, offset + idLen));
+      final transferId = utf8.decode(Uint8List.sublistView(payload, offset, offset + idLen));
       offset += idLen;
 
       final sequenceNumber = byteData.getUint64(offset, Endian.big);
@@ -220,7 +220,7 @@ class FileChunkData {
 
       if (payload.length < offset + dataLen) return null;
 
-      final chunkBytes = payload.sublist(offset, offset + dataLen);
+      final chunkBytes = Uint8List.sublistView(payload, offset, offset + dataLen);
 
       return FileChunkData(
         transferId: transferId,

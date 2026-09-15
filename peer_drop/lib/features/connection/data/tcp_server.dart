@@ -84,6 +84,9 @@ class TcpServer {
     } catch (_) {}
 
     AppLogger.info('Incoming TCP connection from $remoteAddr', tag: 'TcpServer');
+    try {
+      socket.setOption(SocketOption.tcpNoDelay, true);
+    } catch (_) {}
 
     final framer = MessageFramer();
     final conn = _PeerConnection(socket: socket, framer: framer);

@@ -49,6 +49,9 @@ class TcpClient {
         remotePort,
         timeout: AppConstants.connectionTimeout,
       );
+      try {
+        _socket!.setOption(SocketOption.tcpNoDelay, true);
+      } catch (_) {}
 
       final completer = Completer<HandshakeMessage>();
       _framer.reset();

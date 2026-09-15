@@ -1,11 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/errors/app_exceptions.dart';
 import '../../../core/logging/app_logger.dart';
-import '../../../core/utils/file_utils.dart';
 import '../../connection/data/message_framing.dart';
 import '../../connection/data/tcp_client.dart';
 import '../../connection/domain/protocol_message.dart';
@@ -57,26 +58,7 @@ class FileSender {
 
     AppLogger.info('Starting transfer for ${metadata.name} ($fileSize bytes)...', tag: 'FileSender');
 
-    _updateState(TransferState(
-      transferId: _transferId,
-      filename: metadata.name,
-      filePath: metadata.path,
-      fileSize: fileSize,
-      bytesTransferred: 0,
-      status: TransferStatus.requesting,
-      direction: TransferDirection.send,
-      peerDeviceId: client.remotePeerInfo?.deviceId,
-      peerDeviceName: client.remotePeerInfo?.deviceName,
-      peerPlatform: client.remotePeerInfo?.platform,
-      startedAt: DateTime.now(),
-    ));
-
-    // 1. Calculate SHA-256
-    AppLogger.info('Calculating SHA-256 for ${metadata.name}...', tag: 'FileSender');
-    final sha256Hash = await FileUtils.calculateSha256(file);
-    if (_isCancelled) return;
-
-    // 2. Set up peer response listener BEFORE sending request to prevent missing early response
+    // 1. Set up peer response listener BEFORE sending request to prevent missing early response
     final responseCompleter = Completer<bool>();
     StreamSubscription<RawProtocolMessage>? sub;
 
@@ -105,13 +87,13 @@ class FileSender {
       }
     });
 
-    // 3. Send Transfer Request
+    // 2. Send Transfer Request immediately without blocking on pre-hashing
     final request = FileTransferRequestPayload(
       transferId: _transferId!,
       filename: metadata.name,
       fileSize: fileSize,
       mimeType: metadata.mimeType,
-      sha256: sha256Hash,
+      sha256: '', // Calculated on-the-fly during streaming
       senderDeviceId: localDeviceId,
       senderDeviceName: localDeviceName,
     );
@@ -130,11 +112,10 @@ class FileSender {
       peerDeviceId: client.remotePeerInfo?.deviceId,
       peerDeviceName: client.remotePeerInfo?.deviceName,
       peerPlatform: client.remotePeerInfo?.platform,
-      expectedSha256: sha256Hash,
       startedAt: DateTime.now(),
     ));
 
-    // 4. Await peer response (Accept, Reject, Cancel)
+    // 3. Await peer response (Accept, Reject, Cancel)
     try {
       final accepted = await responseCompleter.future.timeout(
         AppConstants.transferRequestTimeout,
@@ -156,7 +137,6 @@ class FileSender {
           peerDeviceId: client.remotePeerInfo?.deviceId,
           peerDeviceName: client.remotePeerInfo?.deviceName,
           peerPlatform: client.remotePeerInfo?.platform,
-          expectedSha256: sha256Hash,
           completedAt: DateTime.now(),
         ));
         return;
@@ -175,22 +155,30 @@ class FileSender {
         peerDeviceId: client.remotePeerInfo?.deviceId,
         peerDeviceName: client.remotePeerInfo?.deviceName,
         peerPlatform: client.remotePeerInfo?.platform,
-        expectedSha256: sha256Hash,
         startedAt: DateTime.now(),
       ));
 
-      await _streamFileChunks(file, fileSize, sha256Hash);
+      await _streamFileChunks(file, fileSize);
     } finally {
       await sub.cancel();
     }
   }
 
-  /// Streams file in 64 KB chunks over TCP
-  Future<void> _streamFileChunks(File file, int fileSize, String sha256Hash) async {
+  /// Streams file in 256 KB chunks over TCP with on-the-fly hashing
+  Future<void> _streamFileChunks(File file, int fileSize) async {
     final raf = await file.open(mode: FileMode.read);
     int sequenceNumber = 0;
     int bytesSent = 0;
     final stopwatch = Stopwatch()..start();
+
+    // Streaming SHA-256 calculation on-the-fly
+    String sha256Hash = '';
+    final outputSink = ChunkedConversionSink<Digest>.withCallback((digests) {
+      if (digests.isNotEmpty) {
+        sha256Hash = digests.first.toString();
+      }
+    });
+    final hashSink = sha256.startChunkedConversion(outputSink);
 
     // Signal transfer start
     client.sendJson(MessageType.fileTransferStart, {'transferId': _transferId});
@@ -203,10 +191,13 @@ class FileSender {
         final bytesRead = await raf.readInto(buffer);
         if (bytesRead <= 0) break;
 
+        final chunkBytes = Uint8List.sublistView(buffer, 0, bytesRead);
+        hashSink.add(chunkBytes);
+
         final chunkData = FileChunkData(
           transferId: _transferId!,
           sequenceNumber: sequenceNumber++,
-          data: Uint8List.sublistView(buffer, 0, bytesRead),
+          data: chunkBytes,
         );
 
         final framedData = MessageSerializer.frame(
@@ -236,13 +227,14 @@ class FileSender {
             peerDeviceId: client.remotePeerInfo?.deviceId,
             peerDeviceName: client.remotePeerInfo?.deviceName,
             peerPlatform: client.remotePeerInfo?.platform,
-            expectedSha256: sha256Hash,
             startedAt: DateTime.now(),
           ));
         }
 
-        // Always yield to the Flutter UI event loop so UI stays completely smooth and responsive
-        await Future.delayed(Duration.zero);
+        // Periodically yield to event loop every 8 chunks (2 MB) to keep UI 60fps smooth without throttling speed
+        if (sequenceNumber % 8 == 0) {
+          await Future<void>.delayed(Duration.zero);
+        }
       }
 
       if (_isCancelled) {
@@ -264,7 +256,10 @@ class FileSender {
         return;
       }
 
-      // Flush socket and send completion message
+      // Finalize streaming hash
+      hashSink.close();
+
+      // Flush socket and send completion message with finalized SHA-256
       await client.flush();
       client.sendJson(MessageType.fileTransferComplete, {
         'transferId': _transferId,

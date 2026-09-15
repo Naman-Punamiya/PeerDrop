@@ -10,7 +10,6 @@ class IncomingFileSession {
   final String originalFilename;
   int bytesWritten = 0;
   bool isClosed = false;
-  Future<void> _writeQueue = Future.value();
 
   IncomingFileSession({
     required this.file,
@@ -18,28 +17,23 @@ class IncomingFileSession {
     required this.originalFilename,
   });
 
-  Future<void> writeChunk(List<int> chunk) {
-    if (isClosed) return Future.value();
-    
-    // Chain writes sequentially to prevent 'An async operation is currently pending' on raf
-    final op = _writeQueue.then((_) async {
-      if (isClosed) return;
+  Future<void> writeChunk(List<int> chunk) async {
+    if (isClosed) return;
+    try {
       await raf.writeFrom(chunk);
       bytesWritten += chunk.length;
-    });
-
-    _writeQueue = op;
-    return op;
+    } catch (e, st) {
+      AppLogger.error('Error writing file chunk: $e', tag: 'FilesystemService', error: e, stackTrace: st);
+      rethrow;
+    }
   }
 
   Future<void> close() async {
     if (isClosed) return;
     isClosed = true;
-    
-    // Await all queued chunk writes to finish before closing
-    await _writeQueue;
-    await raf.flush();
-    await raf.close();
+    try {
+      await raf.close();
+    } catch (_) {}
   }
 
   Future<void> abortAndCleanup() async {
@@ -47,9 +41,8 @@ class IncomingFileSession {
       if (!isClosed) {
         isClosed = true;
         try {
-          await _writeQueue;
+          await raf.close();
         } catch (_) {}
-        await raf.close();
       }
       if (await file.exists()) {
         await file.delete();

@@ -1,4 +1,3 @@
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:open_file/open_file.dart';
@@ -237,7 +236,7 @@ class ActiveTransferCard extends ConsumerWidget {
                   ),
                 ),
               ],
-              if (transfer.isCompleted && transfer.filePath != null && File(transfer.filePath!).existsSync()) ...[
+              if (transfer.isCompleted && transfer.filePath != null && transfer.filePath!.isNotEmpty) ...[
                 OutlinedButton.icon(
                   onPressed: () async {
                     try {

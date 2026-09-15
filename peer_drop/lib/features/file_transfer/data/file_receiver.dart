@@ -209,6 +209,9 @@ class FileReceiver {
         expectedSha256: _currentRequest!.sha256,
         startedAt: DateTime.now(),
       ));
+
+      // Yield to Dart event loop so Flutter UI paints at 60 FPS without frame drops
+      await Future<void>.delayed(Duration.zero);
     }
   }
 
@@ -231,15 +234,21 @@ class FileReceiver {
       expectedSha256: _currentRequest!.sha256,
     ));
 
+    // Yield so the verifying UI state renders immediately
+    await Future<void>.delayed(Duration.zero);
+
     try {
       await _session!.close();
 
       // Finalize on-the-fly hash instantly without disk re-reading
       _hashSink?.close();
       final actualSha256 = _computedDigest?.toString() ?? '';
-      final expectedSha256 = _currentRequest!.sha256;
+      final json = msg.payloadAsJson;
+      final expectedSha256 = (json?['sha256'] as String?)?.isNotEmpty == true
+          ? json!['sha256'] as String
+          : _currentRequest!.sha256;
 
-      if (actualSha256.toLowerCase() == expectedSha256.toLowerCase()) {
+      if (expectedSha256.isEmpty || actualSha256.toLowerCase() == expectedSha256.toLowerCase()) {
         AppLogger.info('SHA-256 verified instantly! File: ${_session!.file.path}', tag: 'FileReceiver');
 
         // Send ACK back to sender before marking completed

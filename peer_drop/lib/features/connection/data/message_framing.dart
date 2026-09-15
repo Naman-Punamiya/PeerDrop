@@ -7,36 +7,19 @@ class MessageFramer {
   static const int headerSize = 5; // 4 bytes length + 1 byte type
   static const int maxPayloadSize = 50 * 1024 * 1024; // 50 MB guard limit
 
-  Uint8List _currentBytes = Uint8List(0);
-  int _readOffset = 0;
+  final BytesBuilder _builder = BytesBuilder(copy: false);
 
   /// Appends newly received bytes and extracts all fully arrived protocol messages.
   List<RawProtocolMessage> processBytes(Uint8List newBytes) {
     if (newBytes.isEmpty) return const [];
 
-    // Retain only unread remainder from previous batch
-    if (_readOffset > 0) {
-      if (_readOffset < _currentBytes.length) {
-        _currentBytes = _currentBytes.sublist(_readOffset);
-      } else {
-        _currentBytes = Uint8List(0);
-      }
-      _readOffset = 0;
-    }
-
-    if (_currentBytes.isEmpty) {
-      _currentBytes = newBytes;
-    } else {
-      final combined = Uint8List(_currentBytes.length + newBytes.length);
-      combined.setRange(0, _currentBytes.length, _currentBytes);
-      combined.setRange(_currentBytes.length, combined.length, newBytes);
-      _currentBytes = combined;
-    }
-
+    _builder.add(newBytes);
+    final buffer = _builder.takeBytes();
+    int offset = 0;
     final messages = <RawProtocolMessage>[];
 
-    while (_currentBytes.length - _readOffset >= headerSize) {
-      final byteData = ByteData.sublistView(_currentBytes, _readOffset, _readOffset + headerSize);
+    while (buffer.length - offset >= headerSize) {
+      final byteData = ByteData.sublistView(buffer, offset, offset + headerSize);
       final payloadLength = byteData.getUint32(0, Endian.big);
       final messageType = byteData.getUint8(4);
 
@@ -46,26 +29,29 @@ class MessageFramer {
       }
 
       final totalFrameSize = headerSize + payloadLength;
-      if (_currentBytes.length - _readOffset < totalFrameSize) {
-        // Incomplete message arrived, wait for more data from TCP stream
+      if (buffer.length - offset < totalFrameSize) {
+        // Incomplete message arrived, put unread remainder back
         break;
       }
 
-      // Extract payload slice
-      final payloadStart = _readOffset + headerSize;
-      final payloadEnd = _readOffset + totalFrameSize;
-      final payload = _currentBytes.sublist(payloadStart, payloadEnd);
+      // Zero-copy view of payload
+      final payloadStart = offset + headerSize;
+      final payloadEnd = offset + totalFrameSize;
+      final payload = Uint8List.sublistView(buffer, payloadStart, payloadEnd);
       messages.add(RawProtocolMessage(type: messageType, payload: payload));
 
-      _readOffset += totalFrameSize;
+      offset += totalFrameSize;
+    }
+
+    if (offset < buffer.length) {
+      _builder.add(Uint8List.sublistView(buffer, offset));
     }
 
     return messages;
   }
 
   void reset() {
-    _currentBytes = Uint8List(0);
-    _readOffset = 0;
+    _builder.clear();
   }
 }
 
